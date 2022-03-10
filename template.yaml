@@ -1,0 +1,282 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  sam-bom1
+
+  Sample SAM Template for sam-bom1
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,OPTIONS'"
+      AllowHeaders: "'content-type'"
+      AllowOrigin: "'*'"
+      AllowCredentials: "'*'"
+
+Resources:
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: hello_world/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Policies:
+      - Statement:
+        - Sid: VisualEditor0
+          Effect: Allow
+          Action:
+          - dynamodb:BatchGetItem
+          - dynamodb:BatchWriteItem
+          - dynamodb:PutItem
+          - dynamodb:GetItem
+          - dynamodb:DeleteItem
+          - dynamodb:Scan
+          - dynamodb:Query
+          - dynamodb:UpdateItem
+          - logs:CreateLogStream
+          - logs:CreateLogGroup
+          Resource:
+          - arn:aws:logs:us-east-2:360631776925:log-group:*
+          - !GetAtt QuestionTable.Arn
+      Events:
+        HelloWorld:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /item
+            Method: get
+        CreateItem:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /item
+            Method: post
+
+  QuestionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: 'Id'
+          AttributeType: 'S'
+      KeySchema:
+        - AttributeName: 'Id'
+          KeyType: 'HASH'
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      TableName: 'questions'
+      StreamSpecification:
+        StreamViewType: 'NEW_IMAGE'
+  TableStreamLambdaMapping:
+    Type: 'AWS::Lambda::EventSourceMapping'
+    Properties:
+      BatchSize: 2
+      EventSourceArn: !GetAtt QuestionTable.StreamArn
+      FunctionName: !GetAtt EsIndexerFunction.Arn
+      StartingPosition: 'LATEST'
+
+  EsIndexerFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: 'index.handler'
+      Runtime: nodejs14.x
+      Role: !GetAtt LambdaRole.Arn
+      Environment:
+        Variables:
+          ES_ENDPOINT: !GetAtt ElasticsearchDomain.DomainEndpoint
+          ES_REGION: !Ref AWS::Region
+      Code:
+        ZipFile: |
+          var AWS = require('aws-sdk');
+          var path = require('path');
+          var creds = new AWS.EnvironmentCredentials('AWS');
+          var esDomain = {
+              endpoint: process.env.ES_ENDPOINT,
+              region: process.env.ES_REGION,
+              index: 'item',
+              doctype: 'question'
+          };
+          var endpoint =  new AWS.Endpoint(esDomain.endpoint);
+          exports.handler = (event, context, callback) => {
+            event.Records.forEach(record => {
+              postDocumentToES(record.eventName, record.dynamodb.NewImage, context);
+            });
+          }
+          function postDocumentToES(action, doc, context) {
+              var req = new AWS.HttpRequest(endpoint);
+              var dataBody = {};
+              if (action == 'INSERT') {
+                req.method = 'POST';
+                req.path = path.join('/', esDomain.index, esDomain.doctype, doc.Id.S);
+                req.region = esDomain.region;
+                dataBody = {
+                  Id: doc.Id.S,
+                  Question: doc.Question.S,
+                  Answer: doc.Answer.S,
+                };
+
+                req.body = JSON.stringify(dataBody);
+              } else if (action == 'MODIFY') {
+                req.method = 'PUT';
+                req.path = path.join('/', esDomain.index, esDomain.doctype, doc.Id.S);
+                req.region = esDomain.region;
+                dataBody = {
+                  Id: doc.Id.S,
+                  Question: doc.Question.S,
+                  Answer: doc.Answer.S,
+                }
+
+                req.body = JSON.stringify(dataBody);
+              } else if (action == 'REMOVE') {
+                req.method = 'DELETE';
+                req.path = path.join('/', esDomain.index, esDomain.doctype, doc.Id.S);
+                req.region = esDomain.region;
+              }
+
+              req.headers['presigned-expires'] = false;
+              req.headers['Host'] = endpoint.host;
+              req.headers['Content-Type'] = 'application/json';
+              // Sign the request (Sigv4)
+              var signer = new AWS.Signers.V4(req, 'es');
+              signer.addAuthorization(creds, new Date());
+              // Post document to ES
+              var send = new AWS.NodeHttpClient();
+              send.handleRequest(req, null, function(httpResp) {
+                  var body = '';
+                  httpResp.on('data', chunk => body += chunk);
+                  httpResp.on('end', () => {
+                    chunk => context.succeed();
+                    console.log('write success:', body);
+                  });
+              }, function(err) {
+                  console.log('Error: ' + err);
+                  context.fail();
+              });
+          }
+  LambdaRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: 'Allow'
+          Principal:
+            Service: 'lambda.amazonaws.com'
+          Action: 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyName: 'LambdaRolePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: 'Allow'
+              Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              Resource: 'arn:aws:logs:*:*:*'
+            - Effect: 'Allow'
+              Action:
+              - dynamodb:DescribeStream
+              - dynamodb:GetRecords
+              - dynamodb:GetShardIterator
+              - dynamodb:ListStreams
+              - dynamodb:ListShards
+              Resource: !GetAtt QuestionTable.StreamArn
+  ElasticsearchDomain:
+    Type: AWS::Elasticsearch::Domain
+    DeletionPolicy: Retain
+    Properties:
+      DomainName: 'sam-bom'
+      ElasticsearchVersion: '7.4'
+      ElasticsearchClusterConfig:
+        InstanceCount: '1'
+        ZoneAwarenessEnabled: false
+        DedicatedMasterEnabled: false
+        InstanceType: 't2.small.elasticsearch'
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: '10'
+        VolumeType: 'gp2'
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              AWS: !GetAtt LambdaRole.Arn
+            Action: 'es:*'
+            Resource: '*'
+          - Effect: 'Allow'
+            Condition:
+              IpAddress:
+                aws:SourceIp:
+                  - 1.55.242.188
+                  - 103.37.29.230
+                  - 42.112.114.236
+            Principal: '*'
+            Action: 'es:*'
+            Resource: '*'
+      AdvancedOptions:
+        rest.action.multi.allow_explicit_index: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+
+
+  WebsiteS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      AccessControl: PublicRead
+      BucketName: bomt3r-website-bucket
+      MetricsConfigurations:
+        - Id: EntireBucket
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+    DeletionPolicy: Retain
+  # MyFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     Events:
+  #       OnTerminate:
+  #         Type: EventBridgeRule
+  #         Properties:
+  #           Pattern:
+  #             source:
+  #               - aws.ec2
+  #             detail-type:
+  #               - EC2 Instance State-change Notification
+  #             detail:
+  #               state:
+  #                 - terminated
+  #             DeadLetterConfig:
+  #               Type: SQS
+  #             RetryPolicy:
+  #               MaximumEventAgeInSeconds: 600
+  #               MaximumRetryAttempts: 3
+
+Outputs:
+  # DomainArn:
+  #   Value: !GetAtt ElasticsearchDomain.DomainArn
+  # DomainEndpoint:
+  #   Value: !GetAtt ElasticsearchDomain.DomainEndpoint
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  HelloWorldApi:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+  HelloWorldFunction:
+    Description: "Hello World Lambda Function ARN"
+    Value: !GetAtt HelloWorldFunction.Arn
+  HelloWorldFunctionIamRole:
+    Description: "Implicit IAM Role created for Hello World function"
+    Value: !GetAtt HelloWorldFunctionRole.Arn
+  WebsiteURL:
+    Value: !GetAtt [WebsiteS3Bucket, WebsiteURL]
+    Description: URL for website hosted on S3
+  S3BucketSecureURL:
+    Value: !Join ['', ['https://', !GetAtt [WebsiteS3Bucket, DomainName]]]
+    Description: Name of S3 bucket to hold website content

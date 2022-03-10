@@ -1,0 +1,125 @@
+<html>
+    <head>
+        <title>Hello world</title>
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js" 
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+        
+    </head>
+    <body>
+        <h1>This is example for serverless application</h1>
+        <div id="search-are">
+
+        </div>
+        <div id="wr-form-add">
+            <div class="alert alert-success alert-dismissible" id="message-status">
+                <a href="#" class="close" data-dismiss="alert" aria-label="close">&times;</a>
+                <strong>Success!</strong> Save successfully
+            </div>
+        
+            <form action="" id="form-add" class="col-md-8">
+                <h3>Add Question</h3>
+                <div class="form-group">
+                    <label for="name">Question</label>
+                    <textarea class="form-control" name="question" rows="4" cols="50"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="price">Answer</label>
+                    <textarea type="text" class="form-control" name="answer" rows="4" cols="50"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+        </div>
+
+        <div id="results">
+            <table class="table table-bordered">
+                <thead>
+                  <tr>
+                    <th>Id</th>
+                    <th>Question</th>
+                    <th>Answer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                    
+                </tbody>
+            </table>
+        </div>
+        <table>
+            <thead>
+                <th></th>
+            </thead>
+        </table>
+
+        <script type="text/javascript">
+            var baseUrl = 'https://m5irs0kq4d.execute-api.us-east-2.amazonaws.com/Prod/item';
+            $(document).ready(function() {
+                $.ajax({
+                    url: baseUrl,
+                    type: 'GET',
+                    crossDomain: true,
+                    contentType: 'application/json',
+                    dataType: 'json',
+                    success: function(result) {
+                        console.log('result list:', result);
+                        var html = '';
+                        $.each(result.data, function( index, value ) {
+                            html += '<tr><td>' + value.Id + '</td><td>' + value.Question + '</td> <td>' + value.Answer + '</td></tr>';
+                        });
+                        $("#results").find('tbody').html(html);
+                    },
+                });
+
+                $("#message-status").hide();
+                $('#form-add').on('submit', function(e) {
+                    console.log('form submit:', e);
+
+                    e.preventDefault();
+
+                    var $question = $(this).find('[name="question"]');
+                    var $answer = $(this).find('[name="answer"]');
+                    var question = $question.val();
+                    var answer = $answer.val();
+
+                    $.ajax({
+                        url: baseUrl,
+                        type: 'POST',
+                        crossDomain: true,
+                        contentType: "application/json; charset=utf-8",
+                        data: JSON.stringify({question: question, answer: answer}),
+                        dataType: 'json',
+                        success: function(result) {
+                            $question.val('');
+                            $answer.val('');
+                            $("#message-status").fadeTo(2000, 500).slideUp(500, function() {
+                                $("#message-status").slideUp(500);
+                            });
+                        },
+                    });
+                });
+            });
+        </script>
+
+        <style type="text/css">
+            .fade {
+                opacity: 0;
+                -webkit-transition: opacity 0.15s linear;
+                -moz-transition: opacity 0.15s linear;
+                -o-transition: opacity 0.15s linear;
+                transition: opacity 0.15s linear;
+            }
+            
+            .fade.in {
+                opacity: 1;
+            }
+
+            #form-add{
+                padding: 10px;
+                border-bottom: 1px solid #ddd0d0;
+                background-color: aliceblue;
+            }
+        </style>
+    </body>
+</html>
