@@ -25,6 +25,10 @@ Resources:
       Runtime: python3.9
       Architectures:
         - x86_64
+      Environment:
+        Variables:
+          ES_ENDPOINT: !GetAtt ElasticsearchDomain.DomainEndpoint
+          ES_REGION: !Ref AWS::Region
       Policies:
       - Statement:
         - Sid: VisualEditor0
@@ -43,6 +47,11 @@ Resources:
           Resource:
           - arn:aws:logs:us-east-2:360631776925:log-group:*
           - !GetAtt QuestionTable.Arn
+        - Sid: VisualEditor1
+          Effect: Allow
+          Action: 'es:*'
+          Resource:
+          - !GetAtt ElasticsearchDomain.Arn
       Events:
         HelloWorld:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -54,6 +63,11 @@ Resources:
           Properties:
             Path: /item
             Method: post
+        SearchItem:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /item/search
+            Method: get
 
   QuestionTable:
     Type: AWS::DynamoDB::Table
@@ -207,6 +221,11 @@ Resources:
           - Effect: 'Allow'
             Principal:
               AWS: !GetAtt LambdaRole.Arn
+            Action: 'es:*'
+            Resource: '*'
+          - Effect: 'Allow'
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}*"
             Action: 'es:*'
             Resource: '*'
           - Effect: 'Allow'

@@ -10,7 +10,7 @@ This project contains source code and supporting files for a serverless applicat
 # Check stack elasticsearch, check data
 - check exist index
 curl  ES_DOMAIN/_aliases
-curl 'ES_DOMAIN/_cat/indices?v'
+curl ES_DOMAIN/_cat/indices?v
 
 - check mapping
 curl  ES_DOMAIN/item
