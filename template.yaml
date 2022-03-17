@@ -29,29 +29,7 @@ Resources:
         Variables:
           ES_ENDPOINT: !GetAtt ElasticsearchDomain.DomainEndpoint
           ES_REGION: !Ref AWS::Region
-      Policies:
-      - Statement:
-        - Sid: VisualEditor0
-          Effect: Allow
-          Action:
-          - dynamodb:BatchGetItem
-          - dynamodb:BatchWriteItem
-          - dynamodb:PutItem
-          - dynamodb:GetItem
-          - dynamodb:DeleteItem
-          - dynamodb:Scan
-          - dynamodb:Query
-          - dynamodb:UpdateItem
-          - logs:CreateLogStream
-          - logs:CreateLogGroup
-          Resource:
-          - arn:aws:logs:us-east-2:360631776925:log-group:*
-          - !GetAtt QuestionTable.Arn
-        - Sid: VisualEditor1
-          Effect: Allow
-          Action: 'es:*'
-          Resource:
-          - !GetAtt ElasticsearchDomain.Arn
+      Role: !GetAtt LambdaQuestionRole.Arn
       Events:
         HelloWorld:
           Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
@@ -170,6 +148,42 @@ Resources:
                   context.fail();
               });
           }
+  LambdaQuestionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: 'Allow'
+          Principal:
+            Service: 'lambda.amazonaws.com'
+          Action: 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyName: 'LambdaRolePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                - dynamodb:BatchGetItem
+                - dynamodb:BatchWriteItem
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:DeleteItem
+                - dynamodb:Scan
+                - dynamodb:Query
+                - dynamodb:UpdateItem
+                - logs:CreateLogStream
+                - logs:CreateLogGroup
+                Resource:
+                - arn:aws:logs:us-east-2:360631776925:log-group:*
+                - !GetAtt QuestionTable.Arn
+              - Sid: VisualEditor1
+                Effect: Allow
+                Action: 'es:*'
+                Resource:
+                - !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/sam-bom"
   LambdaRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -225,7 +239,7 @@ Resources:
             Resource: '*'
           - Effect: 'Allow'
             Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}*"
+              AWS: !GetAtt LambdaQuestionRole.Arn
             Action: 'es:*'
             Resource: '*'
           - Effect: 'Allow'
@@ -292,7 +306,7 @@ Outputs:
     Value: !GetAtt HelloWorldFunction.Arn
   HelloWorldFunctionIamRole:
     Description: "Implicit IAM Role created for Hello World function"
-    Value: !GetAtt HelloWorldFunctionRole.Arn
+    Value: !GetAtt LambdaQuestionRole.Arn
   WebsiteURL:
     Value: !GetAtt [WebsiteS3Bucket, WebsiteURL]
     Description: URL for website hosted on S3
