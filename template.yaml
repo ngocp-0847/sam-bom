@@ -27,7 +27,10 @@ Resources:
         - x86_64
       Environment:
         Variables:
-          ES_ENDPOINT: !GetAtt ElasticsearchDomain.DomainEndpoint
+          ES_ENDPOINT: 
+            !Sub 
+            - 'https://${Domain}'
+            - Domain: !GetAtt ElasticsearchDomain.DomainEndpoint
           ES_REGION: !Ref AWS::Region
       Role: !GetAtt LambdaQuestionRole.Arn
       Events:
@@ -176,6 +179,7 @@ Resources:
                 - dynamodb:UpdateItem
                 - logs:CreateLogStream
                 - logs:CreateLogGroup
+                - logs:PutLogEvents
                 Resource:
                 - arn:aws:logs:us-east-2:360631776925:log-group:*
                 - !GetAtt QuestionTable.Arn
@@ -269,6 +273,77 @@ Resources:
         IndexDocument: index.html
         ErrorDocument: error.html
     DeletionPolicy: Retain
+
+  DeploymentLayer:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location:
+        ApplicationId: arn:aws:serverlessrepo:us-east-1:375983427419:applications/deploy-to-s3
+        SemanticVersion: 2.4.2
+  SiteSource:
+    Type: AWS::Serverless::Function
+    Properties:
+      Layers:
+        - !GetAtt DeploymentLayer.Outputs.Arn
+      CodeUri: websites3/
+      AutoPublishAlias: live
+      Runtime: python3.6
+      Handler: deployer.resource_handler
+      Timeout: 600
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref WebsiteS3Bucket
+
+  DeploymentResource:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SiteSource.Arn
+      Version: !Ref "SiteSource.Version"
+      TargetBucket: !Ref WebsiteS3Bucket
+
+      Substitutions:
+        FilePattern: "*.html"
+        Values:
+          APP_NAME: 'Example Application'
+          STACK_ID: !Ref AWS::StackId
+      Acl: 'public-read'
+      CacheControlMaxAge: 600
+
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: 'Serverless website QA'
+
+  CloudfrontDistribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig:
+        Comment: "Cloudfront distribution for serverless website"
+        DefaultRootObject: "index.html"
+        Enabled: true
+        HttpVersion: http2
+        # List of origins that Cloudfront will connect to
+        Origins:
+          - Id: s3-website
+            DomainName: !GetAtt WebsiteS3Bucket.DomainName
+            S3OriginConfig:
+              # Restricting Bucket access through an origin access identity
+              OriginAccessIdentity: 
+                Fn::Sub: 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        # To connect the CDN to the origins you need to specify behaviours
+        DefaultCacheBehavior:
+          # Compress resources automatically ( gzip )
+          Compress: 'true'
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          ForwardedValues:
+            QueryString: false
+          TargetOriginId: s3-website
+          ViewerProtocolPolicy : redirect-to-https
+
   # MyFunction:
   #   Type: AWS::Serverless::Function
   #   Properties:
