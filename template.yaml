@@ -218,6 +218,34 @@ Resources:
               - dynamodb:ListStreams
               - dynamodb:ListShards
               Resource: !GetAtt QuestionTable.StreamArn
+  LambdaCustomChangeUrlRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: 'Allow'
+          Principal:
+            Service: 'lambda.amazonaws.com'
+          Action: 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyName: 'LambdaCustomRolePolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 's3:*'
+                Resource:
+                - !Sub "arn:aws:s3:::bomt3r-website-bucket"
+                - !Sub "arn:aws:s3:::bomt3r-website-bucket/*"
+              - Effect: 'Allow'
+                Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                Resource: 'arn:aws:logs:*:*:*'
+
   ElasticsearchDomain:
     Type: AWS::Elasticsearch::Domain
     DeletionPolicy: Retain
@@ -308,6 +336,29 @@ Resources:
           STACK_ID: !Ref AWS::StackId
       Acl: 'public-read'
       CacheControlMaxAge: 600
+
+  SiteSourcePasteUrl:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: fnPasteUrl/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64          
+      Role: !GetAtt LambdaCustomChangeUrlRole.Arn
+      AutoPublishAlias: live
+      Timeout: 600
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref WebsiteS3Bucket
+
+  S3ChangeUrlResource:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SiteSourcePasteUrl.Arn
+      Version: !Ref "SiteSourcePasteUrl.Version"
+      API_ENDPOINT: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+      S3_BUCKET: bomt3r-website-bucket
 
   CloudFrontOriginAccessIdentity:
     Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
