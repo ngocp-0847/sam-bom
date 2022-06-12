@@ -1,3 +1,10 @@
+# Mục đích
+- Để test SAM application serverless, cloudformation. Phục vụ mục đích học tập
+
+**Các mục kiến thức cần lưu ý**
+- Cloud formation + SAM deploy and package serverless
+- Dùng AWS::CloudFormation::CustomResource để khi deploy sẽ change base url (của API Gateway) vào trong file **index.html** của s3 bucket
+
 # QAnswer-app
 
 ![](doc/aws-describe.png?raw=true)
